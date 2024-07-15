@@ -1,0 +1,15 @@
+{
+    "name": "bothardv2",
+    "version": "1.0.0",
+    "main": "index.js",
+    "type": "module",
+    "keywords": [],
+    "author": "MagicJinn",
+    "license": "ISC",
+    "description": "CrackHard's failed attempt at a functioning bot, brought back to life by MagicJinn.",
+    "dependencies": {
+        "discord.js": "^14.15.3",
+        "dotenv": "^16.4.5",
+        "node-fetch": "^3.3.2"
+    }
+}
