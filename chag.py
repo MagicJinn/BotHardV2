@@ -23,10 +23,10 @@ GPT2_CONFIG = {
     "model_name": "gpt2",  # Model name to use, e.g., 'gpt2', 'gpt2-medium', 'gpt2-large', etc.
     "max_length": 200,    # Maximum length of the generated output sequence
     "min_length": 100,
-    "temperature": 1.1,    # Sampling temperature, controls randomness (lower is less random)
+    "temperature": 0.8,    # Sampling temperature, controls randomness (lower is less random)
     "top_k": 50,           # Top-k sampling, only consider the top k tokens by probability
     # "top_p": 0.9,          # Top-p (nucleus) sampling, only consider tokens with cumulative probability >= p
-    "repetition_penalty": 1.1,  # Repetition penalty to reduce repeating phrases
+    "repetition_penalty": 1.0,  # Repetition penalty to reduce repeating phrases
     "num_return_sequences": 1,    # Number of output sequences to generate
     "do_sample":True
 }
@@ -34,7 +34,7 @@ GPT2_CONFIG = {
 # Chat Configuration
 CHAT_CONFIG = {
     "user_label": "User",                  # Label for user inputs
-    "ai_label": "AI",            # Label for AI responses
+    "ai_label": "BotHard",            # Label for AI responses
     # "max_history": 20,                # Maximum number of responses to remember in the history
     "system_prompt_file": "system.txt",     # File containing the system prompt
     "failed_response_text":":boom:" # Text outputted when generation fails
@@ -162,8 +162,8 @@ def chat_with_bot(user_label, message):
         
         response_before_fail = generated_response
         
-        # generated_response = prevent_user_impersonation(generated_response, user_label, ai_label)
         generated_response = prevent_repetition(generated_response)
+        generated_response = prevent_user_impersonation(generated_response, user_label, ai_label)
         generated_response = remove_text_from_response(generated_response, system_prompt)
         generated_response = remove_text_from_response(generated_response,f"{ai_label}:")
         generated_response = remove_text_from_response(generated_response, f"{user_label}: {message}")
@@ -175,16 +175,6 @@ def chat_with_bot(user_label, message):
         generated_response.replace(ai_label,"")
 
     return generated_response.strip()
-
-# while True:  
-#     user_label = CHAT_CONFIG["user_label"]
-#     #ai_label = CHAT_CONFIG["ai_label"]
-    
-#     user_input = input(f"{user_label}: ")
-#     if user_input.lower() == 'exit':
-#         break
-    
-#     print(chat_with_bot(user_label,user_input))
 
 app = Flask(__name__)
 
