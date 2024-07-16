@@ -23,7 +23,7 @@ GPT2_CONFIG = {
     "model_name": "gpt2",  # Model name to use, e.g., 'gpt2', 'gpt2-medium', 'gpt2-large', etc.
     "max_length": 200,    # Maximum length of the generated output sequence
     "min_length": 100,
-    "temperature": 0.8,    # Sampling temperature, controls randomness (lower is less random)
+    "temperature": 0.9,    # Sampling temperature, controls randomness (lower is less random)
     "top_k": 50,           # Top-k sampling, only consider the top k tokens by probability
     # "top_p": 0.9,          # Top-p (nucleus) sampling, only consider tokens with cumulative probability >= p
     "repetition_penalty": 1.0,  # Repetition penalty to reduce repeating phrases
@@ -65,26 +65,40 @@ def generate_text(prompt, model, tokenizer, config, input_length, system_prompt_
     )
     return tokenizer.decode(output[0], skip_special_tokens=True)
 
-def prevent_user_impersonation(response, user_label, ai_label):
-    # Combine labels for processing
-    labels = [ai_label,user_label] # AI label first, to prevent repeating itself.
+def prevent_impersonation(conversation, userlabel, ailabel):
+    user_label = f"{userlabel}:"
+    ai_label = f"{ailabel}:"
     
-    for label in labels:
-        # Find the first occurrence of the label
-        first_occurrence = response.find(f"{label}")
-        if first_occurrence == -1:
-            continue  # Skip if the label is not found
-        
-        # Find the second occurrence of the label
-        second_occurrence = response.find(f"{label}:", first_occurrence + len(label) + 1)
-        if second_occurrence == -1:
-            continue
-        
-        # Return everything before the second occurrence of the label
+    occurrence_to_check_for = 1
+    if conversation.startswith(user_label) or conversation.startswith(ai_label):
+        occurrence_to_check_for +=1
+    
+    # Split the conversation into words (tokens)
+    tokens = conversation.split()
+    
+    # Initialize counters and an empty list to store the filtered conversation
+    user_occurrences = 0
+    ai_occurrences = 0
+    filtered_tokens = []
 
-        response = response[:second_occurrence].strip()
-
-    return response.strip()
+    # Loop through each token
+    for token in tokens:
+        # Check if the token starts with user_label
+        if token.startswith(user_label):
+            user_occurrences += 1
+        # Check if the token starts with ai_label
+        elif token.startswith(ai_label):
+            ai_occurrences += 1
+        
+        # If the number of occurrences of either label reaches the specified number, break the loop
+        if user_occurrences == occurrence_to_check_for or ai_occurrences == occurrence_to_check_for:
+            break
+        
+        # Add the token to the filtered tokens list
+        filtered_tokens.append(token)
+    
+    # Join the filtered tokens with a space and return
+    return ' '.join(filtered_tokens)
 
 def prevent_repetition(text):
     max_repeats = biased_random_number()
@@ -155,25 +169,30 @@ def chat_with_bot(user_label, message):
     response_before_fail = ""
     generation_tries = 0
     while generated_response == "" and generation_tries < 5:
-        if response_before_fail != "":
-            print(response_before_fail)
         generation_tries += 1
         generated_response = generate_text(formatted_input, model, tokenizer, GPT2_CONFIG, input_length, system_prompt_length)
         
+        
+        if response_before_fail != "":
+            print(response_before_fail)
         response_before_fail = generated_response
         
         generated_response = prevent_repetition(generated_response)
-        generated_response = prevent_user_impersonation(generated_response, user_label, ai_label)
         generated_response = remove_text_from_response(generated_response, system_prompt)
+        generated_response = prevent_impersonation(generated_response, user_label, ai_label)
         generated_response = remove_text_from_response(generated_response,f"{ai_label}:")
         generated_response = remove_text_from_response(generated_response, f"{user_label}: {message}")
         
     if generated_response == "":
-        generated_response = CHAT_CONFIG["failed_response_text"]
+        if random.random() < 0.50:
+            generated_response = CHAT_CONFIG["failed_response_text"]
+        else:
+            generated_response = response_before_fail
     
     if generated_response.startswith(ai_label):
         generated_response.replace(ai_label,"")
-
+    
+    print(generated_response)
     return generated_response.strip()
 
 app = Flask(__name__)
@@ -192,5 +211,5 @@ def chag():
 
 if __name__ == "__main__":
     install_requirements()
-    print(chat_with_bot("MagicJinn","Hello chag"))
+    print(chat_with_bot("MagicJinn","BothardV2: _chag shut it bro bothard: <3 dragon_emper: it's not bothard its just bot, for the community has no backbone and cannot be trusted. And me, is doing that. It about ethics in botting. that's something I believe in. think important, because even if you don't see it, you're going to able it. Dragon_Emper: Why this talking one use for? important read It's best thing could ever do people. mean, what's so special it? bot. on internet. [laughter] uses internet reach people, an interesting unique people realize good thing. also I've been long time now: learning, they're making bots bots. those engage. know, but How trying? all good. I'm sure trying find out how But too lazy wouldn't want put here without lot of money. I'd like provide with So, really important."))
     app.run(host='0.0.0.0', port=5000)  # Run on all interfaces, port 5000

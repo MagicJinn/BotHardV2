@@ -24,7 +24,9 @@ client.on("messageCreate", async (message) => {
 
     const userWantsToChat = content.includes("_chag") || content.includes("_chat");
     if (userWantsToChat) {
-        QuerryChat(message);
+        message.content = message.content.replace("_chag", "").replace("_chat", "")
+        const response = await QuerryChat(message);
+        message.channel.send(response)
     }
 });
 
@@ -41,9 +43,9 @@ async function QuerryChat(message) {
         });
 
         const data = await response.json();
-        message.channel.send(data.response);  // Assuming your Flask server sends a JSON response with a "response" field
+        return data.response
     } catch (error) {
         console.error('Guhh? Error communicating with server:', error);
-        message.channel.send('Guhh? Sorry, something went wrong while communicating with the server.');
+        return `Guhh? Nice going ${author}, you broke the bot.`;
     }
 }
