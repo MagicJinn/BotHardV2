@@ -90,6 +90,7 @@ client.on("messageCreate", async (message) => {
             message.channel.send(`Guhh? Nice going ${author}, you broke the bot.`);
         }
     }
+
     if (content.includes("_chag") || content.includes("_chat")) {
         message.content = message.content.replace("_chag", "").replace("_chat", "");
         const response = await QuerryChat(message);

@@ -211,5 +211,5 @@ def chag():
 
 if __name__ == "__main__":
     install_requirements()
-    print(chat_with_bot("MagicJinn","BothardV2: _chag shut it bro bothard: <3 dragon_emper: it's not bothard its just bot, for the community has no backbone and cannot be trusted. And me, is doing that. It about ethics in botting. that's something I believe in. think important, because even if you don't see it, you're going to able it. Dragon_Emper: Why this talking one use for? important read It's best thing could ever do people. mean, what's so special it? bot. on internet. [laughter] uses internet reach people, an interesting unique people realize good thing. also I've been long time now: learning, they're making bots bots. those engage. know, but How trying? all good. I'm sure trying find out how But too lazy wouldn't want put here without lot of money. I'd like provide with So, really important."))
+    print(chat_with_bot("MagicJinn","I love you BotHard!"))
     app.run(host='0.0.0.0', port=5000)  # Run on all interfaces, port 5000
