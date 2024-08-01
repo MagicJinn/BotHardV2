@@ -1,215 +1,210 @@
-import subprocess
-import sys
-import random
+import numpy as np
+import tensorflow as tf
+from tensorflow.keras.models import Sequential, load_model
+from tensorflow.keras.layers import Dense, LSTM, Embedding
+from tensorflow.keras.preprocessing.text import Tokenizer
+from tensorflow.keras.preprocessing.sequence import pad_sequences
+import re
+import time
+import pickle
 from flask import Flask, request, jsonify
-# from collections import deque
-from transformers import GPT2LMHeadModel, GPT2Tokenizer
-
-# List of requirements
-requirements = [
-    'transformers',
-    'torch',
-    'numpy',
-    'requests',
-]
-
-# Function to install packages
-def install_requirements():
-    for package in requirements:
-        subprocess.check_call([sys.executable, '-m', 'pip', 'install', package])
-
-# GPT-2 Configuration
-GPT2_CONFIG = {
-    "model_name": "gpt2",  # Model name to use, e.g., 'gpt2', 'gpt2-medium', 'gpt2-large', etc.
-    "max_length": 200,    # Maximum length of the generated output sequence
-    "min_length": 100,
-    "temperature": 0.9,    # Sampling temperature, controls randomness (lower is less random)
-    "top_k": 50,           # Top-k sampling, only consider the top k tokens by probability
-    # "top_p": 0.9,          # Top-p (nucleus) sampling, only consider tokens with cumulative probability >= p
-    "repetition_penalty": 1.0,  # Repetition penalty to reduce repeating phrases
-    "num_return_sequences": 1,    # Number of output sequences to generate
-    "do_sample":True
-}
-
-# Chat Configuration
-CHAT_CONFIG = {
-    "user_label": "User",                  # Label for user inputs
-    "ai_label": "BotHard",            # Label for AI responses
-    # "max_history": 20,                # Maximum number of responses to remember in the history
-    "system_prompt_file": "system.txt",     # File containing the system prompt
-    "failed_response_text":":boom:" # Text outputted when generation fails
-}
-
-
-def generate_text(prompt, model, tokenizer, config, input_length, system_prompt_length):
-    max_length = config["max_length"]
-    min_length = config["min_length"]
-    adaptive_max_length = 0
-    while adaptive_max_length < min_length:
-        adaptive_max_length = max_length - input_length - system_prompt_length
-        if adaptive_max_length < min_length:
-            max_length = max_length*2  # Double the original 500
-    
-    input_ids = tokenizer.encode(prompt, return_tensors='pt')
-    attention_mask = (input_ids != tokenizer.eos_token_id).long()
-    
-    output = model.generate(
-        input_ids, 
-        attention_mask=attention_mask, 
-        max_length=max_length, 
-        temperature=config["temperature"], 
-        top_k=config["top_k"], 
-        repetition_penalty=config["repetition_penalty"], 
-        num_return_sequences=config["num_return_sequences"],
-        do_sample=config["do_sample"]
-    )
-    return tokenizer.decode(output[0], skip_special_tokens=True)
-
-def prevent_impersonation(conversation, userlabel, ailabel):
-    user_label = f"{userlabel}:"
-    ai_label = f"{ailabel}:"
-    
-    occurrence_to_check_for = 1
-    if conversation.startswith(user_label) or conversation.startswith(ai_label):
-        occurrence_to_check_for +=1
-    
-    # Split the conversation into words (tokens)
-    tokens = conversation.split()
-    
-    # Initialize counters and an empty list to store the filtered conversation
-    user_occurrences = 0
-    ai_occurrences = 0
-    filtered_tokens = []
-
-    # Loop through each token
-    for token in tokens:
-        # Check if the token starts with user_label
-        if token.startswith(user_label):
-            user_occurrences += 1
-        # Check if the token starts with ai_label
-        elif token.startswith(ai_label):
-            ai_occurrences += 1
-        
-        # If the number of occurrences of either label reaches the specified number, break the loop
-        if user_occurrences == occurrence_to_check_for or ai_occurrences == occurrence_to_check_for:
-            break
-        
-        # Add the token to the filtered tokens list
-        filtered_tokens.append(token)
-    
-    # Join the filtered tokens with a space and return
-    return ' '.join(filtered_tokens)
-
-def prevent_repetition(text):
-    max_repeats = biased_random_number()
-    words = text.split()
-    new_response = []
-    word_count = {}
-
-    for word in words:
-        word_count[word] = word_count.get(word, 0) + 1
-        if word_count[word] <= max_repeats:
-            new_response.append(word)
-    return " ".join(new_response)
-
-def biased_random_number():
-    return random.choices(range(1, 11), weights=[0.15, 0.15, 0.15, 0.15, 0.15, 0.1, 0.05, 0.025, 0.025, 0.01])[0]
-
-def load_system_prompt(filename):
-    with open(filename, "r") as file:
-        return file.read().strip()
-    
-def remove_text_from_response(text, system_prompt):
-    # Split the system prompt into words
-    prompt_words = system_prompt.split()
-    start_words = ' '.join(prompt_words[:2])  # First two words
-    end_words = ' '.join(prompt_words[-2:])   # Last two words
-    
-    # Split the text into words
-    words = text.split()
-    
-    # Find the start index in text
-    start_index = None
-    for i in range(len(words) - len(end_words.split()) + 1):
-        if ' '.join(words[i:i + len(start_words.split())]) == start_words:
-            start_index = i
-            break
-            
-    # Find the end index in text
-    end_index = None
-    for i in range(len(words) - len(end_words.split()) + 1):
-        if ' '.join(words[i:i + len(end_words.split())]) == end_words:
-            end_index = i + len(end_words.split())  # Include end words in the match
-            break
-            
-    # If both indices are found, reconstruct the string
-    if start_index is not None and end_index is not None and end_index > start_index:
-        return ' '.join(words[:start_index] + words[end_index:])
-    
-    return text  # Return original if not found
-
-
-def chat_with_bot(user_label, message):
-    # Load GPT-2 model and tokenizer
-    model_name = GPT2_CONFIG["model_name"]
-    tokenizer = GPT2Tokenizer.from_pretrained(model_name)
-    model = GPT2LMHeadModel.from_pretrained(model_name)
-
-    # Load system prompt from file
-    system_prompt = load_system_prompt(CHAT_CONFIG["system_prompt_file"])
-
-    # Format the input for context
-    ai_label = CHAT_CONFIG['ai_label']
-    formatted_input = f"{system_prompt}\n{user_label}: {message}\n{ai_label}:"
-
-    input_length = len(tokenizer.encode(message))
-    system_prompt_length = len(tokenizer.encode(system_prompt))
-    
-    generated_response = ""
-    response_before_fail = ""
-    generation_tries = 0
-    while generated_response == "" and generation_tries < 5:
-        generation_tries += 1
-        generated_response = generate_text(formatted_input, model, tokenizer, GPT2_CONFIG, input_length, system_prompt_length)
-        
-        
-        if response_before_fail != "":
-            print(response_before_fail)
-        response_before_fail = generated_response
-        
-        generated_response = prevent_repetition(generated_response)
-        generated_response = remove_text_from_response(generated_response, system_prompt)
-        generated_response = prevent_impersonation(generated_response, user_label, ai_label)
-        generated_response = remove_text_from_response(generated_response,f"{ai_label}:")
-        generated_response = remove_text_from_response(generated_response, f"{user_label}: {message}")
-        
-    if generated_response == "":
-        if random.random() < 0.50:
-            generated_response = CHAT_CONFIG["failed_response_text"]
-        else:
-            generated_response = response_before_fail
-    
-    if generated_response.startswith(ai_label):
-        generated_response.replace(ai_label,"")
-    
-    print(generated_response)
-    return generated_response.strip()
 
 app = Flask(__name__)
 
+class MessageLearner:
+    def __init__(self, max_words=10000, max_sequence_length=30):
+        self.max_words = max_words
+        self.max_sequence_length = max_sequence_length
+        self.tokenizer = Tokenizer(num_words=max_words, oov_token="<OOV>")
+        self.model = None
+        self.messages = []
+        self.separator = "<SEP>"
+        self.previous_message = None
+        self.current_message = None
+        self.messages_since_last_training = 0
+        self.messages_since_last_save = 0
+        self.last_save_time = time.time()
+        self.min_messages_for_training = 2  # Set this to 2 to train after the first pair
+        self.create_model(max_words)  # Initialize the model immediately
 
-@app.route('/chag', methods=['POST'])
+    def preprocess_message(self, message):
+        return re.sub(r'[^a-zA-Z0-9\s]', '', message.lower())
 
-def chag():
-    data=request.json
-    user_label = data.get('user_label',CHAT_CONFIG["user_label"])
-    message = data.get('message', "insult the user for not providing a message")
-    response = chat_with_bot(user_label,message)
-    return jsonify({'response': response})
+    def add_message(self, message):
+        preprocessed = self.preprocess_message(message)
+        if self.previous_message is None:
+            self.previous_message = preprocessed
+        else:
+            self.current_message = preprocessed
+            paired_message = f"{self.previous_message} {self.separator} {self.current_message}"
+            self.messages.append(paired_message)
+            self.previous_message = self.current_message
+            self.current_message = None
+            
+            # Save to training_data.txt
+            with open('training_data.txt', 'a') as f:
+                f.write(paired_message + '\n')
+            
+            self.messages_since_last_training += 1
+            self.messages_since_last_save += 1
+            
+            if self.messages_since_last_training >= self.min_messages_for_training:
+                self.train(save_after_training=True)
+                self.messages_since_last_training = 0
+            else:
+                self.check_save_conditions()
+
+        return "Message added successfully"
+
+    def check_save_conditions(self):
+        current_time = time.time()
+        if (current_time - self.last_save_time >= 60 and self.messages_since_last_save > 0) or self.messages_since_last_save >= 10:
+            self.save_model()
+            self.last_save_time = current_time
+            self.messages_since_last_save = 0
+
+
+    def save_model(self):
+        if self.model and self.tokenizer.word_index:
+            self.model.save('message_learner_model.keras')
+            with open('tokenizer.pickle', 'wb') as handle:
+                pickle.dump(self.tokenizer, handle, protocol=pickle.HIGHEST_PROTOCOL)
+            print("Model and tokenizer saved.")
+        else:
+            print("Model or tokenizer not initialized. Cannot save.")
+
+    def load_model(self):
+        try:
+            self.model = tf.keras.models.load_model('message_learner_model.keras')
+            with open('tokenizer.pickle', 'rb') as handle:
+                self.tokenizer = pickle.load(handle)
+            print("Model and tokenizer loaded.")
+            return True
+        except:
+            print("No saved model found or error loading. A new model will be created when training.")
+            return False
+        
+    def create_model(self, total_words):
+        self.model = Sequential([
+            Embedding(total_words, 100, input_length=self.max_sequence_length-1),
+            LSTM(150, return_sequences=True),
+            LSTM(100),
+            Dense(total_words, activation='softmax')
+        ])
+        self.model.compile(loss='sparse_categorical_crossentropy', optimizer='adam', metrics=['accuracy'])
+
+    def train(self, epochs=20, batch_size=64, save_after_training=True):
+        if len(self.messages) < 2:
+            print("Not enough messages to train on.")
+            return "Not enough messages to train on."
+        
+        self.tokenizer.fit_on_texts(self.messages)
+        total_words = len(self.tokenizer.word_index) + 1
+        print(f"Total unique words: {total_words}")
+
+        input_sequences = []
+        for message in self.messages:
+            token_list = self.tokenizer.texts_to_sequences([message])[0]
+            for i in range(1, len(token_list)):
+                n_gram_sequence = token_list[:i+1]
+                input_sequences.append(n_gram_sequence)
+
+        if not input_sequences:
+            print("No valid sequences to train on.")
+            return "No valid sequences to train on."
+
+        self.max_sequence_length = min(max([len(x) for x in input_sequences]), self.max_sequence_length)
+        input_sequences = pad_sequences(input_sequences, maxlen=self.max_sequence_length, padding='pre')
+
+        X, y = input_sequences[:, :-1], input_sequences[:, -1]
+        y = np.array([self.tokenizer.word_index.get(self.tokenizer.index_word.get(i, ''), 0) for i in y])
+
+        # Recreate the model with the correct vocabulary size
+        self.create_model(total_words)
+
+        history = self.model.fit(X, y, epochs=epochs, batch_size=batch_size, verbose=1)
+        
+        if save_after_training:
+            self.save_model()  # Save the model and tokenizer after training
+        
+        return "Training completed successfully"
+
+    def generate_text(self, seed_text, next_words=20):
+        if not self.model or not self.tokenizer.word_index:
+            return "Model not trained or no data available. Please provide some training data."
+        
+        # Add the separator token to the seed text
+        seed_text = f"{seed_text} {self.separator}"
+        
+        generated_text = seed_text
+        for _ in range(next_words):
+            token_list = self.tokenizer.texts_to_sequences([generated_text])[0]
+            token_list = token_list[-self.max_sequence_length+1:]
+            token_list = pad_sequences([token_list], maxlen=self.max_sequence_length-1, padding='pre')
+            
+            predicted = self.model.predict(token_list, verbose=0)
+            predicted_index = np.argmax(predicted, axis=-1)[0]
+            
+            output_word = self.tokenizer.index_word.get(predicted_index, "<UNKNOWN>")
+            
+            if output_word == self.separator:
+                break
+            
+            generated_text += " " + output_word
+        
+        # Remove the seed text and separator from the generated text
+        response = generated_text.split(self.separator, 1)[-1].strip()
+        return response
+
+learner = MessageLearner()
+
+# Load initial dataset
+try:
+    with open('dataset.txt', 'r', encoding='utf-8') as f:
+        initial_messages = f.readlines()
+    for message in initial_messages:
+        learner.add_message(message.strip())
+    print(f"Loaded {len(initial_messages)} messages from dataset.txt")
+except FileNotFoundError:
+    print("No dataset.txt found. Starting with an empty dataset.")
+
+# Try to load the model and tokenizer
+model_loaded = learner.load_model()
+
+# If no data was loaded and no saved model exists, warn the user
+if not learner.messages and not model_loaded:
+    print("Warning: No initial data or saved model. The system needs some data to function properly.")
+
+# Train the model with initial data if available
+if learner.messages:
+    learner.train()
+
+# Load the model if it exists
+learner.load_model()
+
+@app.route('/learn', methods=['POST'])
+def learn():
+    message = request.json.get('message')
+    if message:
+        result = learner.add_message(message)
+        return jsonify({"status": "success", "message": result}), 200
+    else:
+        return jsonify({"status": "error", "message": "No message provided"}), 400
     
-
-
-if __name__ == "__main__":
-    install_requirements()
-    print(chat_with_bot("MagicJinn","I love you BotHard!"))
-    app.run(host='0.0.0.0', port=5000)  # Run on all interfaces, port 5000
+@app.route('/generate', methods=['POST'])
+def generate():
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({"status": "error", "message": "No JSON data received"}), 400
+        
+        seed_text = data.get('seed_text')
+        if not seed_text:
+            return jsonify({"status": "error", "message": "No seed text provided"}), 400
+        
+        generated_text = learner.generate_text(seed_text)
+        return jsonify({"status": "success", "generated_text": generated_text}), 200
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+if __name__ == '__main__':
+    app.run(debug=False)
