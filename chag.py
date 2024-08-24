@@ -18,17 +18,23 @@ class MessageLearner:
         self.tokenizer = Tokenizer(num_words=max_words, oov_token="<OOV>")
         self.model = None
         self.messages = []
-        self.separator = "<SEP>"
         self.previous_message = None
         self.current_message = None
         self.messages_since_last_training = 0
         self.messages_since_last_save = 0
         self.last_save_time = time.time()
-        self.min_messages_for_training = 2  # Set this to 2 to train after the first pair
-        self.create_model(max_words)  # Initialize the model immediately
+        self.min_messages_for_training = 2
+        self.create_model(max_words)
+
+    def add_period(self, text):
+        if not text.endswith(('.', '?', '!')):
+            text += '.'
+        return text
 
     def preprocess_message(self, message):
-        return re.sub(r'[^a-zA-Z0-9\s]', '', message.lower())
+        message = re.sub(r'[^a-zA-Z0-9\s.?!]', '', message.lower())
+        sentences = re.split(r'(?<=[.!?])\s+', message)
+        return ' '.join(self.add_period(sentence) for sentence in sentences)
 
     def add_message(self, message):
         preprocessed = self.preprocess_message(message)
@@ -36,12 +42,11 @@ class MessageLearner:
             self.previous_message = preprocessed
         else:
             self.current_message = preprocessed
-            paired_message = f"{self.previous_message} {self.separator} {self.current_message}"
+            paired_message = f"{self.previous_message} {self.current_message}"
             self.messages.append(paired_message)
             self.previous_message = self.current_message
             self.current_message = None
             
-            # Save to training_data.txt
             with open('training_data.txt', 'a') as f:
                 f.write(paired_message + '\n')
             
@@ -62,7 +67,6 @@ class MessageLearner:
             self.save_model()
             self.last_save_time = current_time
             self.messages_since_last_save = 0
-
 
     def save_model(self):
         if self.model and self.tokenizer.word_index:
@@ -119,13 +123,12 @@ class MessageLearner:
         X, y = input_sequences[:, :-1], input_sequences[:, -1]
         y = np.array([self.tokenizer.word_index.get(self.tokenizer.index_word.get(i, ''), 0) for i in y])
 
-        # Recreate the model with the correct vocabulary size
         self.create_model(total_words)
 
         history = self.model.fit(X, y, epochs=epochs, batch_size=batch_size, verbose=1)
         
         if save_after_training:
-            self.save_model()  # Save the model and tokenizer after training
+            self.save_model()
         
         return "Training completed successfully"
 
@@ -133,8 +136,7 @@ class MessageLearner:
         if not self.model or not self.tokenizer.word_index:
             return "Model not trained or no data available. Please provide some training data."
         
-        # Add the separator token to the seed text
-        seed_text = f"{seed_text} {self.separator}"
+        seed_text = self.preprocess_message(seed_text)
         
         generated_text = seed_text
         for _ in range(next_words):
@@ -147,13 +149,12 @@ class MessageLearner:
             
             output_word = self.tokenizer.index_word.get(predicted_index, "<UNKNOWN>")
             
-            if output_word == self.separator:
-                break
-            
             generated_text += " " + output_word
+            
+            if output_word in ['.', '?', '!']:
+                break
         
-        # Remove the seed text and separator from the generated text
-        response = generated_text.split(self.separator, 1)[-1].strip()
+        response = generated_text[len(seed_text):].strip()
         return response
 
 learner = MessageLearner()
