@@ -51,7 +51,7 @@ client.on("messageCreate", async (message) => {
                 try {
                     const sentMessage = await message.channel.send({ files: [attachment] });
                     const attachmentUrl = sentMessage.attachments.first().url;
-                    memeCache[meme.filename] = attachmentUrl;
+                    memeCache[meme.filename] = attachmentUrl.split("?")[0]; // remove discord tracking garbage
                     await saveMemeCache();
                 } catch (error) {
                     console.error("Error sending meme:", error);

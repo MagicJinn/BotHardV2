@@ -159,18 +159,22 @@ class MessageLearner:
 
 learner = MessageLearner()
 
-# Load initial dataset
-try:
+# Load the model if it exists
+model_loaded = learner.load_model()
+
+# Load initial dataset and update the model
+if os.path.exists('dataset.txt'):
     with open('dataset.txt', 'r', encoding='utf-8') as f:
         initial_messages = f.readlines()
     for message in initial_messages:
         learner.add_message(message.strip())
-    print(f"Loaded {len(initial_messages)} messages from dataset.txt")
-except FileNotFoundError:
-    print("No dataset.txt found. Starting with an empty dataset.")
-
-# Try to load the model and tokenizer
-model_loaded = learner.load_model()
+    print(f"Loaded and processed {len(initial_messages)} messages from dataset.txt")
+    
+    # Train the model with the new data
+    if learner.messages:
+        learner.train()
+else:
+    print("No dataset.txt found. Starting with the existing model or an empty dataset.")
 
 # If no data was loaded and no saved model exists, warn the user
 if not learner.messages and not model_loaded:
