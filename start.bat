@@ -1,5 +1,9 @@
 @echo off
 
+git pull
+pip install -r requirements.txt
+npm install
+
 :: Start the python LLM server in a new window
 start "Python Script" cmd /k "python chag.py"
 
