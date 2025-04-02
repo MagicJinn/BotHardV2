@@ -9,3 +9,4 @@ dataset.txt
 training_data.txt
 *.keras
 tokenizer.pickle
+package-lock.json
