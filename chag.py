@@ -1,6 +1,5 @@
 import numpy as np
 import tensorflow as tf
-import os
 from tensorflow.keras.models import Sequential, load_model
 from tensorflow.keras.layers import Dense, LSTM, Embedding
 from tensorflow.keras.preprocessing.text import Tokenizer
@@ -8,6 +7,7 @@ from tensorflow.keras.preprocessing.sequence import pad_sequences
 import re
 import time
 import pickle
+import os
 from flask import Flask, request, jsonify
 
 app = Flask(__name__)
@@ -90,13 +90,16 @@ class MessageLearner:
             return False
         
     def create_model(self, total_words):
-        self.model = Sequential([
-            Embedding(total_words, 100, input_length=self.max_sequence_length-1),
-            LSTM(150, return_sequences=True),
-            LSTM(100),
-            Dense(total_words, activation='softmax')
-        ])
-        self.model.compile(loss='sparse_categorical_crossentropy', optimizer='adam', metrics=['accuracy'])
+            # Ensure max_sequence_length is consistent
+            self.max_sequence_length = 25  # Fixed length for consistency
+            self.model = Sequential([
+                Embedding(total_words, 100, input_length=self.max_sequence_length-1),
+                LSTM(150, return_sequences=True),
+                LSTM(100),
+                Dense(total_words, activation='softmax')
+            ])
+            self.model.compile(loss='sparse_categorical_crossentropy', optimizer='adam', metrics=['accuracy'])
+
 
     def train(self, epochs=20, batch_size=64, save_after_training=True):
         if len(self.messages) < 2:
@@ -142,7 +145,9 @@ class MessageLearner:
         generated_text = seed_text
         for _ in range(next_words):
             token_list = self.tokenizer.texts_to_sequences([generated_text])[0]
-            token_list = token_list[-self.max_sequence_length+1:]
+            # Ensure we only take the last (max_sequence_length-1) tokens
+            token_list = token_list[-(self.max_sequence_length-1):]
+            # Pad to match the model's expected input length
             token_list = pad_sequences([token_list], maxlen=self.max_sequence_length-1, padding='pre')
             
             predicted = self.model.predict(token_list, verbose=0)
@@ -156,7 +161,7 @@ class MessageLearner:
                 break
         
         response = generated_text[len(seed_text):].strip()
-        return response
+        return response 
 
 learner = MessageLearner()
 
