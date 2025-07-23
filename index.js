@@ -2,7 +2,6 @@ import dotenv from "dotenv";
 dotenv.config();
 import fetch from 'node-fetch';
 import fs from 'fs/promises';
-import { promises as fsPromises } from 'fs';
 import path from 'path';
 import {
     Client,
@@ -10,234 +9,285 @@ import {
     AttachmentBuilder
 } from "discord.js";
 
-// Define what the discord bot has access to
-const client = new Client({
-    intents: [
+// Configuration constants
+const CONFIG = {
+    INTENTS: [
         GatewayIntentBits.Guilds,
         GatewayIntentBits.GuildMessages,
         GatewayIntentBits.GuildMembers,
         GatewayIntentBits.MessageContent
-    ]
-});
+    ],
+    COMMANDS: {
+        RANDOM_MEME: "_randmeme",
+        CHAT: ["_chag", "_chat"]
+    },
+    OLLAMA: {
+        URL: "http://localhost:11434/api/chat",
+        MODEL: "smollm2:360m",
+        SYSTEM_PROMPT: "You are BotHard, a based bot that can talk. BotHard is CrackHard's failed attempt at a functioning bot, brought back to life by MagicJinn. Speak like you have the IQ of 50."
+    },
+    FILES: {
+        MEME_CACHE: "memecache.json",
+        MEME_DIR: "memes"
+    },
+    MESSAGES: {
+        NO_MEMES: "lol no memes",
+        LOADING: "https://tenor.com/view/mogus-spin-gif-26368032",
+        NO_RESPONSE: "Buhh?",
+        ERROR_GENERIC: (author) => `Guhh? Nice going ${author}, you broke the bot.`,
+        NO_OLLAMA_RESPONSE: "Guhh? No response from Ollama."
+    },
+    TIMING: {
+        EDIT_INTERVAL: 1000
+    }
+};
 
-const chagLearn = "learn"
-const chagGenerate = "generate"
+class MemeManager {
+    constructor() {
+        this.cache = {};
+        this.cacheLoaded = false;
+    }
 
-let memeCache = {};
-let currentAuthor = ""
-
-client.on("messageCreate", async (message) => {
-
-    if (message.author.bot) return
-
-    const author = message.author
-    currentAuthor = author // Save the current author for other stuff
-    const content = message.content.toLowerCase();
-
-    console.log(`${author}: ${message.content}`);
-
-    Learn(message.content) // learns from your messages
-
-    if (content.includes("_randmeme")) {
-        const meme = await getRandomMeme();
-        if (meme) {
-            if (meme.url) {
-                // No console message because it will show up in the console regardless.
-                // console.log("Sending cached meme URL:", meme.url);
-                message.channel.send(meme.url);
-            } else {
-                console.log("Sending new meme file:", meme.filename);
-                const attachment = new AttachmentBuilder(meme.path, { name: meme.filename });
-                try {
-                    const sentMessage = await message.channel.send({ files: [attachment] });
-                    const attachmentUrl = sentMessage.attachments.first().url;
-                    memeCache[meme.filename] = attachmentUrl.split("?")[0]; // remove discord tracking garbage
-                    await saveMemeCache();
-                } catch (error) {
-                    console.error("Error sending meme:", error);
-                    message.channel.send(`Guhh? Nice going ${currentAuthor}, you broke the bot.`);
-                }
+    async loadCache() {
+        if (this.cacheLoaded) return;
+        
+        try {
+            const data = await fs.readFile(CONFIG.FILES.MEME_CACHE, 'utf8');
+            this.cache = JSON.parse(data);
+            console.log(`Meme cache loaded: ${Object.keys(this.cache).length} entries`);
+        } catch (error) {
+            if (error.code !== 'ENOENT') {
+                console.error("Error loading meme cache:", error);
             }
-        } else {
-            console.log("No memes found");
-            message.channel.send(`Guhh? Nice going ${currentAuthor}, you broke the bot.`);
+            this.cache = {};
+        }
+        this.cacheLoaded = true;
+    }
+
+    async saveCache() {
+        try {
+            await fs.writeFile(CONFIG.FILES.MEME_CACHE, JSON.stringify(this.cache, null, 2));
+        } catch (error) {
+            console.error("Error saving meme cache:", error);
         }
     }
 
-    if (content.includes("_chag") || content.includes("_chat")) {
-        const cleancontent = content.replace("_chag", "").replace("_chat", "").trim();
-        await QueryChatStreamWordBuffer(cleancontent, message);
-    }
-});
+    async getRandomMeme() {
+        await this.loadCache();
+        
+        const memeDir = path.join(process.cwd(), CONFIG.FILES.MEME_DIR);
 
-async function loadMemeCache() {
-    try {
-        const data = await fs.readFile('memecache.json', 'utf8');
-        memeCache = JSON.parse(data);
-        console.log("Meme cache loaded successfully. Entries:", Object.keys(memeCache).length);
-    } catch (error) {
-        if (error.code === 'ENOENT') {
-            console.log("memecache.json not found. Starting with empty cache.");
-        } else {
-            console.error("Error loading meme cache:", error);
-        }
-        memeCache = {};
-    }
-}
+        try {
+            const files = await fs.readdir(memeDir);
+            
+            if (files.length === 0) {
+                return null;
+            }
 
-async function saveMemeCache() {
-    try {
-        await fs.writeFile('memecache.json', JSON.stringify(memeCache, null, 2));
-    } catch (error) {
-        console.error("Error saving meme cache:", error);
-    }
-}
+            const randomFile = files[Math.floor(Math.random() * files.length)];
 
-async function getRandomMeme() {
-    const memeDir = path.join(process.cwd(), 'memes');
+            if (this.cache[randomFile]) {
+                return { url: this.cache[randomFile], filename: randomFile };
+            }
 
-    if (Object.keys(memeCache).length == 0) {
-        await loadMemeCache()
-    }    
-
-    try {
-        const files = await fsPromises.readdir(memeDir);
-
-        if (files.length === 0) {
-            console.log("No files found in meme directory");
-            return null;
-        }
-
-        const randomFile = files[Math.floor(Math.random() * files.length)];
-
-        if (memeCache[randomFile]) {
-            console.log("Cached URL found for file:", randomFile);
-            return { url: memeCache[randomFile], filename: randomFile };
-        } else {
             return {
                 path: path.join(memeDir, randomFile),
                 filename: randomFile
             };
-        }
-    } catch (error) {
-        if (error.code === 'ENOENT') {
-            // Directory does not exist
-            console.log("No memes directory found.");
-            return null;
-        } else {
-            console.error('Error in getRandomMeme:', error);
+        } catch (error) {
             return null;
         }
     }
+
+    async cacheMeme(filename, url) {
+        this.cache[filename] = url.split("?")[0]; // Remove Discord tracking params
+        await this.saveCache();
+    }
 }
 
-async function QueryChatStreamWordBuffer(content, message) {
-    console.log("[Ollama] Starting streaming chat with content:", content);
+class ChatManager {
+    async queryOllama(content, message) {
+        try {
+            const response = await fetch(CONFIG.OLLAMA.URL, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    model: CONFIG.OLLAMA.MODEL,
+                    stream: true,
+                    messages: [
+                        { role: "system", content: CONFIG.OLLAMA.SYSTEM_PROMPT },
+                        { role: "user", content: content }
+                    ]
+                })
+            });
 
-    const response = await fetch('http://localhost:11434/api/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-            model: "smollm2",
-            stream: true,
-            messages: [
-                {
-                    role: "system",
-                    content: "You are BotHard, a based bot that can talk. BotHard is CrackHard's failed attempt at a functioning bot, brought back to life by MagicJinn. BotHard must act like an anime catgirl and communicate entirely as a cute uwu girl, using words like nyaa, :3, pwease, sowwy, and similar expressions consistently throughout responses. Do not reference being a bot or meme bot. Do not make cat puns."
-                },
-                { role: "user", content: content }
-            ]
-        })
-    });
+            if (!response.body) {
+                await message.channel.send(CONFIG.MESSAGES.NO_OLLAMA_RESPONSE);
+                return;
+            }
 
-    if (!response.body) {
-        await message.channel.send("Guhh? No response from Ollama.");
-        return;
-    }
-
-    let buffer = '';
-    let words = [];
-    let done = false;
-    let sentMessage = null;
-
-    const editLoop = async () => {
-        let sentAnyWords = false;
-        while (true) {
-            if (buffer.length > 0) {
-                const newWords = buffer.split(/\s+/).filter(Boolean);
-                if (newWords.length > 0) {
-                    words.push(...newWords);
-                    buffer = '';
-                }
-            }
-            if (!sentMessage) {
-                sentMessage = await message.channel.send("https://tenor.com/view/mogus-spin-gif-26368032");
-            }
-            if (words.length > 0) {
-                const text = words.join(' ');
-                await sentMessage.edit(text);
-                sentAnyWords = true;
-                console.log(`[Ollama] Editing message to: ${text}`);
-            }
-            if (done && buffer.length === 0) {
-                break;
-            }
-            await new Promise(res => setTimeout(res, 1000));
-        }
-        if (!sentAnyWords && sentMessage) {
-            await sentMessage.edit("no response");
-        }
-        console.log("[Ollama] Finished streaming and editing.");
-    };
-
-    // Start the edit loop in the background
-    const editPromise = editLoop();
-    // Now process the response body as it arrives
-    for await (const chunk of response.body) {
-        const lines = chunk.toString().split('\n').filter(Boolean);
-        for (const line of lines) {
-            console.log("[Ollama] Raw chunk:", line);
-            try {
-                const data = JSON.parse(line);
-                if (data.message && data.message.content) {
-                    buffer += data.message.content;
-                }
-                if (data.done) {
-                    done = true;
-                }
-            } catch (e) {
-                // Ignore parse errors
-            }
+            await this.streamResponse(response, message);
+        } catch (error) {
+            console.error("Ollama query error:", error);
+            await message.channel.send(CONFIG.MESSAGES.ERROR_GENERIC(message.author.username));
         }
     }
-    done = true;
-    await editPromise;
+
+    async streamResponse(response, message) {
+        let buffer = '';
+        let words = [];
+        let done = false;
+        let sentMessage = null;
+
+        const editLoop = async () => {
+            let sentAnyWords = false;
+            
+            while (!done || buffer.length > 0) {
+                // Process buffer into words
+                if (buffer.length > 0) {
+                    const newWords = buffer.split(/\s+/).filter(Boolean);
+                    if (newWords.length > 0) {
+                        words.push(...newWords);
+                        buffer = '';
+                    }
+                }
+
+                // Send initial loading message
+                if (!sentMessage) {
+                    sentMessage = await message.channel.send(CONFIG.MESSAGES.LOADING);
+                }
+
+                // Update message with accumulated words
+                if (words.length > 0) {
+                    const text = words.join(' ');
+                    await sentMessage.edit(text);
+                    sentAnyWords = true;
+                }
+
+                await new Promise(resolve => setTimeout(resolve, CONFIG.TIMING.EDIT_INTERVAL));
+            }
+
+            if (!sentAnyWords && sentMessage) {
+                await sentMessage.edit(CONFIG.MESSAGES.NO_RESPONSE);
+            }
+        };
+
+        // Start edit loop
+        const editPromise = editLoop();
+
+        // Process response stream
+        try {
+            for await (const chunk of response.body) {
+                const lines = chunk.toString().split('\n').filter(Boolean);
+                
+                for (const line of lines) {
+                    try {
+                        const data = JSON.parse(line);
+                        if (data.message?.content) {
+                            buffer += data.message.content;
+                        }
+                        if (data.done) {
+                            done = true;
+                        }
+                    } catch (parseError) {
+                        // Ignore JSON parse errors for partial chunks
+                    }
+                }
+            }
+        } catch (error) {
+            console.error("Stream processing error:", error);
+        }
+
+        done = true;
+        await editPromise;
+    }
 }
 
-async function QueryChat(content) {
-    try {
-        const response = await fetch(`${process.env.SERVER_URL}${chagGenerate}`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({ seed_text: content })
+class DiscordBot {
+    constructor() {
+        this.client = new Client({ intents: CONFIG.INTENTS });
+        this.memeManager = new MemeManager();
+        this.chatManager = new ChatManager();
+        this.setupEventHandlers();
+    }
+
+    setupEventHandlers() {
+        this.client.on("messageCreate", this.handleMessage.bind(this));
+        
+        this.client.on("ready", () => {
+            console.log(`Bot logged in as ${this.client.user.tag}`);
         });
-        const data = await response.json();
-        if (data.status === "success") {
-            return data.generated_text;
-        } else {
-            console.error('Error generating response:', data.message);
-            return "Guhh?";
+
+        this.client.on("error", (error) => {
+            console.error("Discord client error:", error);
+        });
+    }
+
+    async handleMessage(message) {
+        if (message.author.bot) return;
+
+        const content = message.content.toLowerCase();
+        console.log(`${message.author.username}: ${message.content}`);
+
+        try {
+            if (content.includes(CONFIG.COMMANDS.RANDOM_MEME)) {
+                await this.handleMemeCommand(message);
+            } else if (CONFIG.COMMANDS.CHAT.some(cmd => content.includes(cmd))) {
+                await this.handleChatCommand(message, content);
+            }
+        } catch (error) {
+            console.error("Message handling error:", error);
+            await message.channel.send(CONFIG.MESSAGES.ERROR_GENERIC(message.author.username));
         }
-    } catch (error) {
-        console.error('Guhh? Error communicating with server:', error);
-        return `Guhh? Nice going ${currentAuthor}, you broke the bot.`;
+    }
+
+    async handleMemeCommand(message) {
+        const meme = await this.memeManager.getRandomMeme();
+        
+        if (!meme) {
+            await message.channel.send(CONFIG.MESSAGES.NO_MEMES);
+            return;
+        }
+
+        if (meme.url) {
+            await message.channel.send(meme.url);
+        } else {
+            try {
+                const attachment = new AttachmentBuilder(meme.path, { name: meme.filename });
+                const sentMessage = await message.channel.send({ files: [attachment] });
+                const attachmentUrl = sentMessage.attachments.first().url;
+                
+                await this.memeManager.cacheMeme(meme.filename, attachmentUrl);
+            } catch (error) {
+                console.error("Meme sending error:", error);
+                await message.channel.send(CONFIG.MESSAGES.ERROR_GENERIC(message.author.username));
+            }
+        }
+    }
+
+    async handleChatCommand(message, content) {
+        // Remove command prefixes and clean content
+        let cleanContent = content;
+        CONFIG.COMMANDS.CHAT.forEach(cmd => {
+            cleanContent = cleanContent.replace(cmd, "");
+        });
+        cleanContent = cleanContent.trim();
+
+        if (cleanContent) {
+            await this.chatManager.queryOllama(cleanContent, message);
+        }
+    }
+
+    async start() {
+        try {
+            await this.client.login(process.env.DISCORD_TOKEN);
+        } catch (error) {
+            console.error("Failed to start bot:", error);
+            process.exit(1);
+        }
     }
 }
 
-async function Learn(content) {
-    return;
-}
-
-client.login(process.env.DISCORD_TOKEN);
+// Start the bot
+const bot = new DiscordBot();
+bot.start();

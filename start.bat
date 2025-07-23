@@ -23,6 +23,9 @@
 :: Pull latest changes from Git
  git pull
 
+:: Make sure we have the model from Ollama
+ ollama pull smollm2:360m
+
 :: Install Python dependencies
 :: pip install -r requirements.txt
 
