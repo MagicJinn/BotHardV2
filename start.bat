@@ -21,7 +21,7 @@
 :: call conda activate %CONDA_ENV%
 
 :: Pull latest changes from Git
-:: git pull
+ git pull
 
 :: Install Python dependencies
 :: pip install -r requirements.txt
