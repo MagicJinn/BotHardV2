@@ -65,9 +65,8 @@ client.on("messageCreate", async (message) => {
     }
 
     if (content.includes("_chag") || content.includes("_chat")) {
-        const cleancontent = content.replace("_chag", "").replace("_chat", "");
-        const response = await QueryChat(cleancontent);
-        message.channel.send(response);
+        const cleancontent = content.replace("_chag", "").replace("_chat", "").trim();
+        await QueryChatStreamWordBuffer(cleancontent, message);
     }
 });
 
@@ -121,9 +120,98 @@ async function getRandomMeme() {
             };
         }
     } catch (error) {
-        console.error('Error in getRandomMeme:', error);
-        return null;
+        if (error.code === 'ENOENT') {
+            // Directory does not exist
+            console.log("No memes directory found.");
+            return null;
+        } else {
+            console.error('Error in getRandomMeme:', error);
+            return null;
+        }
     }
+}
+
+async function QueryChatStreamWordBuffer(content, message) {
+    console.log("[Ollama] Starting streaming chat with content:", content);
+
+    const response = await fetch('http://localhost:11434/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            model: "smollm2",
+            stream: true,
+            messages: [
+                {
+                    role: "system",
+                    content: "You are BotHard, a based bot that can talk. BotHard is CrackHard's failed attempt at a functioning bot, brought back to life by MagicJinn. BotHard must act like an anime catgirl and communicate entirely as a cute uwu girl, using words like nyaa, :3, pwease, sowwy, and similar expressions consistently throughout responses. Do not reference being a bot or meme bot. Do not make cat puns."
+                },
+                { role: "user", content: content }
+            ]
+        })
+    });
+
+    if (!response.body) {
+        await message.channel.send("Guhh? No response from Ollama.");
+        return;
+    }
+
+    let buffer = '';
+    let words = [];
+    let done = false;
+    let sentMessage = null;
+
+    const editLoop = async () => {
+        let sentAnyWords = false;
+        while (true) {
+            if (buffer.length > 0) {
+                const newWords = buffer.split(/\s+/).filter(Boolean);
+                if (newWords.length > 0) {
+                    words.push(...newWords);
+                    buffer = '';
+                }
+            }
+            if (!sentMessage) {
+                sentMessage = await message.channel.send("https://tenor.com/view/mogus-spin-gif-26368032");
+            }
+            if (words.length > 0) {
+                const text = words.join(' ');
+                await sentMessage.edit(text);
+                sentAnyWords = true;
+                console.log(`[Ollama] Editing message to: ${text}`);
+            }
+            if (done && buffer.length === 0) {
+                break;
+            }
+            await new Promise(res => setTimeout(res, 1000));
+        }
+        if (!sentAnyWords && sentMessage) {
+            await sentMessage.edit("no response");
+        }
+        console.log("[Ollama] Finished streaming and editing.");
+    };
+
+    // Start the edit loop in the background
+    const editPromise = editLoop();
+    // Now process the response body as it arrives
+    for await (const chunk of response.body) {
+        const lines = chunk.toString().split('\n').filter(Boolean);
+        for (const line of lines) {
+            console.log("[Ollama] Raw chunk:", line);
+            try {
+                const data = JSON.parse(line);
+                if (data.message && data.message.content) {
+                    buffer += data.message.content;
+                }
+                if (data.done) {
+                    done = true;
+                }
+            } catch (e) {
+                // Ignore parse errors
+            }
+        }
+    }
+    done = true;
+    await editPromise;
 }
 
 async function QueryChat(content) {
@@ -149,25 +237,7 @@ async function QueryChat(content) {
 }
 
 async function Learn(content) {
-    try {
-        const response = await fetch(`${process.env.SERVER_URL}${chagLearn}`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({ message: content })
-        });
-        const data = await response.json();
-        if (data.status === "success") {
-            return "Message learned successfully.";
-        } else {
-            console.error('Error learning message:', data.message);
-            return `Guhh? Couldn't learn that: ${data.message}`;
-        }
-    } catch (error) {
-        console.error('Guhh? Error communicating with server:', error);
-        return `Guhh? Nice going ${currentAuthor}, you broke the bot.`;
-    }
+    return;
 }
 
 client.login(process.env.DISCORD_TOKEN);
