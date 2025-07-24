@@ -107,6 +107,9 @@ class MemeManager {
 
 class ChatManager {
     async queryOllama(content, message) {
+        // Send loading message immediately
+        const sentMessage = await message.channel.send(CONFIG.MESSAGES.LOADING);
+
         try {
             const response = await fetch(CONFIG.OLLAMA.URL, {
                 method: 'POST',
@@ -122,22 +125,21 @@ class ChatManager {
             });
 
             if (!response.body) {
-                await message.channel.send(CONFIG.MESSAGES.NO_OLLAMA_RESPONSE);
+                await sentMessage.edit(CONFIG.MESSAGES.NO_OLLAMA_RESPONSE);
                 return;
             }
 
-            await this.streamResponse(response, message);
+            await this.streamResponse(response, sentMessage);
         } catch (error) {
             console.error("Ollama query error:", error);
-            await message.channel.send(CONFIG.MESSAGES.ERROR_GENERIC(message.author.username));
+            await sentMessage.edit(CONFIG.MESSAGES.ERROR_GENERIC(message.author.username));
         }
     }
 
-    async streamResponse(response, message) {
+    async streamResponse(response, sentMessage) {
         let buffer = '';
         let words = [];
         let done = false;
-        let sentMessage = null;
 
         const editLoop = async () => {
             let sentAnyWords = false;
@@ -152,11 +154,6 @@ class ChatManager {
                     }
                 }
 
-                // Send initial loading message
-                if (!sentMessage) {
-                    sentMessage = await message.channel.send(CONFIG.MESSAGES.LOADING);
-                }
-
                 // Update message with accumulated words
                 if (words.length > 0) {
                     const text = words.join(' ');
@@ -167,7 +164,7 @@ class ChatManager {
                 await new Promise(resolve => setTimeout(resolve, CONFIG.TIMING.EDIT_INTERVAL));
             }
 
-            if (!sentAnyWords && sentMessage) {
+            if (!sentAnyWords) {
                 await sentMessage.edit(CONFIG.MESSAGES.NO_RESPONSE);
             }
         };
