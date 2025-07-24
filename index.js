@@ -117,6 +117,7 @@ class ChatManager {
                 body: JSON.stringify({
                     model: CONFIG.OLLAMA.MODEL,
                     stream: true,
+                    keep_alive: -1, // this keeps the model loaded in RAM indefinitely
                     messages: [
                         { role: "system", content: CONFIG.OLLAMA.SYSTEM_PROMPT },
                         { role: "user", content: content }
