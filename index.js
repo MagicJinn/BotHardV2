@@ -39,6 +39,9 @@ const CONFIG = {
     },
     TIMING: {
         EDIT_INTERVAL: 1000
+    },
+    CHANCE: {
+        RANDOM_TALK: 35 // 1 in x
     }
 };
 
@@ -234,7 +237,10 @@ class DiscordBot {
         try {
             if (content.includes(CONFIG.COMMANDS.RANDOM_MEME)) {
                 await this.handleMemeCommand(message);
-            } else if (CONFIG.COMMANDS.CHAT.some(cmd => content.includes(cmd))) {
+            } else if (
+                CONFIG.COMMANDS.CHAT.some(cmd => content.includes(cmd)) ||
+                Math.random() < 1 / CONFIG.CHANCE.RANDOM_TALK
+        ) {
                 await this.handleChatCommand(message, content);
             }
         } catch (error) {
