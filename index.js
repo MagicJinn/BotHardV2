@@ -41,7 +41,7 @@ const CONFIG = {
         EDIT_INTERVAL: 1000
     },
     CHANCE: {
-        RANDOM_TALK: 35 // 1 in x
+        RANDOM_TALK: 55 // 1 in x
     }
 };
 
