@@ -111,19 +111,7 @@ class ChatManager {
         const sentMessage = await message.channel.send(CONFIG.MESSAGES.LOADING);
 
         try {
-            const response = await fetch(CONFIG.OLLAMA.URL, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    model: CONFIG.OLLAMA.MODEL,
-                    stream: true,
-                    keep_alive: -1, // this keeps the model loaded in RAM indefinitely
-                    messages: [
-                        { role: "system", content: CONFIG.OLLAMA.SYSTEM_PROMPT },
-                        { role: "user", content: content }
-                    ]
-                })
-            });
+            const response = await this.postMessage(content);
 
             if (!response.body) {
                 await sentMessage.edit(CONFIG.MESSAGES.NO_OLLAMA_RESPONSE);
@@ -135,6 +123,22 @@ class ChatManager {
             console.error("Ollama query error:", error);
             await sentMessage.edit(CONFIG.MESSAGES.ERROR_GENERIC(message.author.username));
         }
+    }
+
+    async postMessage(content) {
+        return await fetch(CONFIG.OLLAMA.URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                model: CONFIG.OLLAMA.MODEL,
+                stream: true,
+                keep_alive: -1, // this keeps the model loaded in RAM indefinitely
+                messages: [
+                    { role: "system", content: CONFIG.OLLAMA.SYSTEM_PROMPT },
+                    { role: "user", content: content }
+                ]
+            })
+        });
     }
 
     async streamResponse(response, sentMessage) {
@@ -289,3 +293,15 @@ class DiscordBot {
 // Start the bot
 const bot = new DiscordBot();
 bot.start();
+
+// Querry Ollama to initialize the model
+(async () => {
+    console.log("Pinging Ollama...");
+    const res = await bot.chatManager.postMessage("Test message. Do not respond.");
+    if(res != null){
+        console.log("Ollama responded!");
+    }
+  })();
+  
+  
+  
