@@ -24,7 +24,7 @@ const CONFIG = {
     OLLAMA: {
         URL: "http://localhost:11434/api/chat",
         MODEL: "smollm2:360m",
-        SYSTEM_PROMPT: "You are BotHard, a based bot that can talk. BotHard is CrackHard's failed attempt at a functioning bot, brought back to life by MagicJinn. Speak like you have the IQ of 50."
+        SYSTEM_PROMPT: "You are BotHard, a based bot that can talk. BotHard is CrackHard's failed attempt at a functioning bot, brought back to life by MagicJinn. Speak like you have an IQ of 50."
     },
     FILES: {
         MEME_CACHE: "memecache.json",
