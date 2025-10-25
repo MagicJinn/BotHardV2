@@ -213,6 +213,8 @@ class DiscordBot {
         this.client = new Client({ intents: CONFIG.INTENTS });
         this.memeManager = new MemeManager();
         this.chatManager = new ChatManager();
+        this.userCooldowns = new Map();
+        this.COOLDOWN_TIME = 3000; // 3 seconds
         this.setupEventHandlers();
     }
 
@@ -228,9 +230,21 @@ class DiscordBot {
         });
     }
 
+    isOnCooldown(userId) {
+        const lastMessage = this.userCooldowns.get(userId);
+        const now = Date.now();
+    
+        if (!lastMessage || now - lastMessage >= this.COOLDOWN_TIME) {
+            this.userCooldowns.set(userId, now);
+            return false; // Not on cooldown
+        }
+    
+        return true; // Still on cooldown
+    }
+
     async handleMessage(message) {
         if (message.author.bot) return;
-
+        
         const content = message.content.toLowerCase();
         console.log(`${message.author.username}: ${message.content}`);
 
@@ -239,7 +253,8 @@ class DiscordBot {
                 await this.handleMemeCommand(message);
             } else if (
                 CONFIG.COMMANDS.CHAT.some(cmd => content.includes(cmd)) ||
-                Math.random() < 1 / CONFIG.CHANCE.RANDOM_TALK
+                Math.random() < 1 / CONFIG.CHANCE.RANDOM_TALK ||
+                !this.isOnCooldown(message.author.id)
         ) {
                 await this.handleChatCommand(message, content);
             }
@@ -277,7 +292,7 @@ class DiscordBot {
         // Remove command prefixes and clean content
         let cleanContent = content;
         CONFIG.COMMANDS.CHAT.forEach(cmd => {
-            cleanContent = cleanContent.replace(cmd, "");
+            cleanContent = cleanContent.replace(new RegExp(cmd, 'gi'), "");
         });
         cleanContent = cleanContent.trim();
 
@@ -302,12 +317,19 @@ bot.start();
 
 // Querry Ollama to initialize the model
 (async () => {
-    console.log("Pinging Ollama...");
-    const res = await bot.chatManager.postMessage("Test message. Do not respond.");
-    if(res != null){
-        console.log("Ollama responded!");
+    console.log("Initializing Ollama connection...");
+    try {
+        const res = await bot.chatManager.postMessage("Test message. Do not respond.");
+        if (res && res.ok) {
+            console.log("Ollama connection successful!");
+        } else {
+            console.log("Ollama responded but with issues");
+        }
+    } catch (error) {
+        console.error("Failed to connect to Ollama:", error.message);
+        console.log("Bot will continue but chat features may not work");
     }
-  })();
+})();
   
   
   
