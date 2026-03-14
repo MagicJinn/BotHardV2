@@ -8,6 +8,7 @@ ollama pull smollm2:360m
 
 :: Install Node.js dependencies
 cmd /c npm install
+cmd /c npm audit fix
 
 :: Every 10 seconds, try to start the Discord bot. If the bot loses internet connection, it crashes. This fixes it.
 :loop
