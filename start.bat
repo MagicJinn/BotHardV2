@@ -3,12 +3,14 @@
 :: Pull latest changes from Git
 git pull
 
-:: Make sure we have the model from Ollama
-ollama pull smollm2:360m
 
 :: Install Node.js dependencies
 cmd /c npm install
 cmd /c npm audit fix
+
+:: Make sure we have the model from Ollama
+:: Run npm stuff first to make sure Ollama has time to start up in the background
+ollama pull smollm2:360m
 
 :: Every 10 seconds, try to start the Discord bot. If the bot loses internet connection, it crashes. This fixes it.
 :loop
