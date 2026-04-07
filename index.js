@@ -219,7 +219,7 @@ class DiscordBot {
     setupEventHandlers() {
         this.client.on("messageCreate", this.handleMessage.bind(this));
         
-        this.client.on("ready", () => {
+        this.client.on("clientReady", () => {
             console.log(`Bot logged in as ${this.client.user.tag}`);
         });
 
