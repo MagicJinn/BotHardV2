@@ -29,7 +29,7 @@ DISCORD_TOKEN=your_bot_token_here
 
 ## Technical Details
 
-- Uses Ollama with the `smollm2:360m` model (automatically pulled on startup)
+- Uses Ollama with the `qwen2.5:0.5b` model (automatically pulled on startup)
 - Memes are cached after first upload to avoid re-uploading
 - Auto-restart: The start script restarts the bot every 10 seconds if it crashes
 - Requires Ollama to be running locally on port 11434 (default)

@@ -23,7 +23,7 @@ const CONFIG = {
     },
     OLLAMA: {
         URL: "http://localhost:11434/api/chat",
-        MODEL: "smollm2:360m",
+        MODEL: "qwen2.5:0.5b",
         SYSTEM_PROMPT: "You are BotHard, a based bot that can talk. BotHard is CrackHard's failed attempt at a functioning bot, brought back to life by MagicJinn. Speak like you have an IQ of 50."
     },
     FILES: {
@@ -41,7 +41,7 @@ const CONFIG = {
         EDIT_INTERVAL: 1000
     },
     CHANCE: {
-        RANDOM_TALK: 55 // 1 in x
+        RANDOM_TALK: 150 // 1 in x
     }
 };
 
