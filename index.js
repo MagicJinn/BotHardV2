@@ -6,7 +6,10 @@ import path from 'path';
 import {
     Client,
     GatewayIntentBits,
-    AttachmentBuilder
+    AttachmentBuilder,
+    EmbedBuilder,
+    ChannelType,
+    PermissionFlagsBits
 } from "discord.js";
 
 // Configuration constants
@@ -19,6 +22,7 @@ const CONFIG = {
     ],
     COMMANDS: {
         RANDOM_MEME: "_randmeme",
+        MOVE_CONV: ["_moveconv", "_convmove"],
         CHAT: ["_chag", "_chat"]
     },
     OLLAMA: {
@@ -35,13 +39,29 @@ const CONFIG = {
         LOADING: "https://tenor.com/view/mogus-spin-gif-26368032",
         NO_RESPONSE: "Buhh?",
         ERROR_GENERIC: (author) => `Guhh? Nice going ${author}, you broke the bot.`,
-        NO_OLLAMA_RESPONSE: "Guhh? No response from Ollama."
+        NO_OLLAMA_RESPONSE: "Guhh? No response from Ollama.",
+            MOVE_USAGE: "usage: `_moveconv #channel <amount> [age]`",
+            MOVE_NO_AMOUNT: "Guhh? how many messages? `_moveconv #channel <amount> [age]`",
+            MOVE_INVALID_AMOUNT: "Uhh? amount has to be between 1 and 100.",
+            MOVE_INVALID_AGE: "Buhh? age looks like `30` (minutes), `45s`, `2h`, or `1d`.",
+            MOVE_NO_CHANNEL: "Buhh? that channel doesnt exist or i cant use it.",
+            MOVE_NO_MESSAGES: "Guhh? nothing to move.",
+            MOVE_NO_RECENT: "Buhh? none of those messages are within the age limit.",
+            MOVE_ADMIN_ONLY: "Buhh? you need manage messages for that.",
+            MOVE_NOTICE: (channelLink) => `conversation moved to ${channelLink}`
     },
     TIMING: {
         EDIT_INTERVAL: 1000
     },
     CHANCE: {
         RANDOM_TALK: 150 // 1 in x
+    },
+    MOVE_CONV: {
+            MAX_AMOUNT: 100,
+            DEFAULT_AGE_MS: 24 * 60 * 60 * 1000,
+            EMBED_COLOR: 0x5865F2,
+            DESC_LIMIT: 4096,
+            FILES_PER_MESSAGE: 10
     }
 };
 
@@ -235,17 +255,194 @@ class DiscordBot {
         console.log(`${message.author.username}: ${message.content}`);
 
         try {
-            if (content.includes(CONFIG.COMMANDS.RANDOM_MEME)) {
+            if (CONFIG.COMMANDS.MOVE_CONV.some(cmd => content.startsWith(cmd))) {
+                await this.handleMoveConvCommand(message);
+            } else if (content.includes(CONFIG.COMMANDS.RANDOM_MEME)) {
                 await this.handleMemeCommand(message);
             } else if (
                 CONFIG.COMMANDS.CHAT.some(cmd => content.includes(cmd)) ||
                 Math.random() < 1 / CONFIG.CHANCE.RANDOM_TALK
-        ) {
+            ) {
                 await this.handleChatCommand(message, content);
             }
         } catch (error) {
             console.error("Message handling error:", error);
             await message.channel.send(CONFIG.MESSAGES.ERROR_GENERIC(message.author.username));
+        }
+    }
+
+    parseMoveConvAge(raw) {
+        if (raw == null) return CONFIG.MOVE_CONV.DEFAULT_AGE_MS;
+
+        const match = String(raw).match(/^(\d+)([shd])?$/i);
+        if (!match) return null;
+
+        const value = Number(match[1]);
+        const unit = (match[2] || "m").toLowerCase();
+        const multipliers = {
+            s: 1000,
+            m: 60 * 1000,
+            h: 60 * 60 * 1000,
+            d: 24 * 60 * 60 * 1000
+        };
+        return value * multipliers[unit];
+    }
+
+    async handleMoveConvCommand(message) {
+        if (!message.member?.permissions.has(PermissionFlagsBits.ManageMessages)) {
+            await message.channel.send(CONFIG.MESSAGES.MOVE_ADMIN_ONLY);
+            return;
+        }
+
+        const match = message.content.match(/^_(?:moveconv|convmove)\s+<#(\d+)>(?:\s+(\d+))?(?:\s+(\d+[shd]?))?$/i);
+        if (!match) {
+            await message.channel.send(CONFIG.MESSAGES.MOVE_USAGE);
+            return;
+        }
+
+        if (match[2] == null) {
+            await message.channel.send(CONFIG.MESSAGES.MOVE_NO_AMOUNT);
+            return;
+        }
+
+        const amount = Number(match[2]);
+        if (!Number.isInteger(amount) || amount < 1 || amount > CONFIG.MOVE_CONV.MAX_AMOUNT) {
+            await message.channel.send(CONFIG.MESSAGES.MOVE_INVALID_AMOUNT);
+            return;
+        }
+
+        const maxAgeMs = this.parseMoveConvAge(match[3]);
+        if (maxAgeMs == null) {
+            await message.channel.send(CONFIG.MESSAGES.MOVE_INVALID_AGE);
+            return;
+        }
+
+        const targetChannel = message.guild?.channels.cache.get(match[1]);
+        if (
+            !targetChannel ||
+            (targetChannel.type !== ChannelType.GuildText &&
+                targetChannel.type !== ChannelType.GuildAnnouncement)
+        ) {
+            await message.channel.send(CONFIG.MESSAGES.MOVE_NO_CHANNEL);
+            return;
+        }
+
+        const fetched = await message.channel.messages.fetch({
+            limit: amount,
+            before: message.id
+        });
+        if (fetched.size === 0) {
+            await message.channel.send(CONFIG.MESSAGES.MOVE_NO_MESSAGES);
+            return;
+        }
+
+        const cutoff = Date.now() - maxAgeMs;
+        const messages = [...fetched.values()]
+            .reverse()
+            .filter(m => m.createdTimestamp >= cutoff);
+
+        if (messages.length === 0) {
+            await message.channel.send(CONFIG.MESSAGES.MOVE_NO_RECENT);
+            return;
+        }
+
+        const participantIds = [...new Set(messages.map(m => m.author.id))];
+        const embed = this.buildConversationEmbed(messages, message.channel, message.author);
+        const pings = participantIds.map(id => `<@${id}>`).join(" ");
+        const files = await this.downloadMoveAttachments(messages);
+        const batchSize = CONFIG.MOVE_CONV.FILES_PER_MESSAGE;
+
+        const movedMessage = await targetChannel.send({
+            content: pings,
+            embeds: [embed],
+            files: files.slice(0, batchSize),
+            allowedMentions: {
+                users: participantIds
+            }
+        });
+
+        for (let i = batchSize; i < files.length; i += batchSize) {
+            await targetChannel.send({
+                files: files.slice(i, i + batchSize)
+            });
+        }
+
+        const toDelete = [...messages, message];
+        await this.deleteMessages(message.channel, toDelete);
+
+        const channelLink = `[#${targetChannel.name}](${movedMessage.url})`;
+        await message.channel.send(CONFIG.MESSAGES.MOVE_NOTICE(channelLink));
+    }
+
+    async downloadMoveAttachments(messages) {
+        const files = [];
+        let index = 0;
+
+        for (const m of messages) {
+            for (const att of m.attachments.values()) {
+                try {
+                    const res = await fetch(att.url);
+                    if (!res.ok) continue;
+
+                    const buffer = Buffer.from(await res.arrayBuffer());
+                    const name = att.name || `file_${index}`;
+                    files.push(new AttachmentBuilder(buffer, {
+                        name: `${index}_${name}`
+                    }));
+                    index++;
+                } catch (error) {
+                    console.error("Attachment download failed:", error);
+                }
+            }
+        }
+
+        return files;
+    }
+
+    buildConversationEmbed(messages, sourceChannel, mover) {
+        const lines = messages.map(m => {
+            const time = m.createdAt.toLocaleString("en-US", {
+                month: "short",
+                day: "numeric",
+                hour: "numeric",
+                minute: "2-digit"
+            });
+            const body = m.content?.trim() || "";
+            const attachmentLines = [...m.attachments.values()]
+                .map(a => `📎 ${a.name}`)
+                .join("\n");
+            const text = [body, attachmentLines].filter(Boolean).join("\n") || "*empty message*";
+            return `**${m.member?.displayName || m.author.username}** · ${time}\n${text}`;
+        });
+
+        let description = lines.join("\n\n");
+        if (description.length > CONFIG.MOVE_CONV.DESC_LIMIT) {
+            description = description.slice(0, CONFIG.MOVE_CONV.DESC_LIMIT - 20) + "\n\n…truncated";
+        }
+
+        return new EmbedBuilder()
+            .setColor(CONFIG.MOVE_CONV.EMBED_COLOR)
+            .setTitle(`Conversation from #${sourceChannel.name}`)
+            .setDescription(description)
+            .setFooter({
+                text: `Moved by ${mover.username}`
+            })
+            .setTimestamp();
+    }
+
+    async deleteMessages(channel, messages) {
+        const twoWeeksAgo = Date.now() - 14 * 24 * 60 * 60 * 1000;
+        const recent = messages.filter(m => m.createdTimestamp > twoWeeksAgo);
+        const old = messages.filter(m => m.createdTimestamp <= twoWeeksAgo);
+
+        if (recent.length > 1) {
+            await channel.bulkDelete(recent, true);
+        } else if (recent.length === 1) {
+            await recent[0].delete().catch(() => {});
+        }
+
+        for (const m of old) {
+            await m.delete().catch(() => {});
         }
     }
 
